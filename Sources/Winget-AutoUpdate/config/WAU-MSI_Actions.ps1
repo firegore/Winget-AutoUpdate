@@ -83,6 +83,38 @@ function Install-WingetAutoUpdate {
         }
         Register-ScheduledTask -TaskName 'Winget-AutoUpdate' -TaskPath 'WAU' -InputObject $task -Force | Out-Null
 
+        # Settings for the scheduled task for Installation of Apps
+        $taskAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$($InstallPath)winget-checkinstall.ps1`""
+        $taskTriggers = @()
+        if ($WAUconfig.WAU_UpdatesAtLogon -eq 1) {
+            $tasktriggers += New-ScheduledTaskTrigger -AtLogOn
+        }
+        if ($WAUconfig.WAU_UpdatesInterval -eq "Daily") {
+            $tasktriggers += New-ScheduledTaskTrigger -Daily -At $WAUconfig.WAU_UpdatesAtTime -RandomDelay $WAUconfig.WAU_UpdatesTimeDelay
+        }
+        elseif ($WAUconfig.WAU_UpdatesInterval -eq "BiDaily") {
+            $tasktriggers += New-ScheduledTaskTrigger -Daily -At $WAUconfig.WAU_UpdatesAtTime -DaysInterval 2 -RandomDelay $WAUconfig.WAU_UpdatesTimeDelay
+        }
+        elseif ($WAUconfig.WAU_UpdatesInterval -eq "Weekly") {
+            $tasktriggers += New-ScheduledTaskTrigger -Weekly -At $WAUconfig.WAU_UpdatesAtTime -DaysOfWeek 2 -RandomDelay $WAUconfig.WAU_UpdatesTimeDelay
+        }
+        elseif ($WAUconfig.WAU_UpdatesInterval -eq "BiWeekly") {
+            $tasktriggers += New-ScheduledTaskTrigger -Weekly -At $WAUconfig.WAU_UpdatesAtTime -DaysOfWeek 2 -WeeksInterval 2 -RandomDelay $WAUconfig.WAU_UpdatesTimeDelay
+        }
+        elseif ($WAUconfig.WAU_UpdatesInterval -eq "Monthly") {
+            $tasktriggers += New-ScheduledTaskTrigger -Weekly -At $WAUconfig.WAU_UpdatesAtTime -DaysOfWeek 2 -WeeksInterval 4 -RandomDelay $WAUconfig.WAU_UpdatesTimeDelay
+        }
+        $taskUserPrincipal = New-ScheduledTaskPrincipal -UserId S-1-5-18 -RunLevel Highest
+        $taskSettings = New-ScheduledTaskSettingsSet -Compatibility Win8 -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 03:00:00
+        # Set up the task, and register it
+        if ($taskTriggers) {
+            $task = New-ScheduledTask -Action $taskAction -Principal $taskUserPrincipal -Settings $taskSettings -Trigger $taskTriggers
+        }
+        else {
+            $task = New-ScheduledTask -Action $taskAction -Principal $taskUserPrincipal -Settings $taskSettings
+        }
+        Register-ScheduledTask -TaskName 'Winget-AutoUpdate-Install' -TaskPath 'WAU' -InputObject $task -Force | Out-Null
+
         # Settings for the scheduled task in User context
         $taskAction = New-ScheduledTaskAction -Execute "conhost.exe" -Argument "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File winget-upgrade.ps1" -WorkingDirectory $InstallPath
         $taskUserPrincipal = New-ScheduledTaskPrincipal -GroupId S-1-5-11
@@ -180,6 +212,7 @@ function Uninstall-WingetAutoUpdate {
 
     Write-Host "-> Removing scheduled tasks."
     Get-ScheduledTask -TaskName "Winget-AutoUpdate" -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$False
+    Get-ScheduledTask -TaskName "Winget-AutoUpdate-Install" -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$False
     Get-ScheduledTask -TaskName "Winget-AutoUpdate-Notify" -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$False
     Get-ScheduledTask -TaskName "Winget-AutoUpdate-UserContext" -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$False
     Get-ScheduledTask -TaskName "Winget-AutoUpdate-Policies" -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$False
